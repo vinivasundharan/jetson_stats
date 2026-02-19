@@ -427,7 +427,7 @@ class JtopServer(Process):
         self.engine = EngineService()
         # Initialize tegrastats for engine utilization data
         self._tegrastats_data = {}
-        self._tegrastats = Tegrastats(self._tegrastats_callback, [])
+        self._tegrastats = Tegrastats(self._tegrastats_callback, ["/usr/bin/tegrastats"])
         # Setup Temperature service
         self.temperature = TemperatureService()
         # Setup Power meter service
