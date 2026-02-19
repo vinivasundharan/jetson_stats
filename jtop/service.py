@@ -48,6 +48,7 @@ from .core.gpu import GPUService
 from .core.engine import EngineService
 from .core.temperature import TemperatureService
 from .core.power import PowerService
+from .core.tegrastats import Tegrastats
 from .core.fan import FanService
 from .core.jetson_clocks import JetsonClocksService
 from .core.nvpmodel import NVPModelService
@@ -424,6 +425,9 @@ class JtopServer(Process):
         self.memory = MemoryService(self.config)
         # Setup engine service
         self.engine = EngineService()
+        # Initialize tegrastats for engine utilization data
+        self._tegrastats_data = {}
+        self._tegrastats = Tegrastats(self._tegrastats_callback, [])
         # Setup Temperature service
         self.temperature = TemperatureService()
         # Setup Power meter service
@@ -445,6 +449,10 @@ class JtopServer(Process):
             self.jetsonpower = None
         # Initialize timer reader
         self._timer_reader = TimerReader(self.jtop_stats)
+
+    def _tegrastats_callback(self, stats):
+        """Callback to store tegrastats data for engine utilization"""
+        self._tegrastats_data = stats
 
     def run(self):
         logger.info("Initialization service")
@@ -559,6 +567,9 @@ class JtopServer(Process):
                             self.interval.value = interval
                             # Status start tegrastats
                             logger.info("jtop timer thread started {interval}ms".format(interval=int(interval * 1000)))
+                            # Start tegrastats for engine utilization
+                            if self._tegrastats.open(interval=interval):
+                                logger.info("tegrastats started for engine utilization")
                         # send configuration board
                         init = {
                             'version': self._version,
@@ -590,6 +601,9 @@ class JtopServer(Process):
                     self.cpu.reset_estimation()
                     # Reset avg temperatures
                     self.power.reset_avg_power()
+                    # Close tegrastats
+                    if self._tegrastats.close():
+                        logger.info("tegrastats closed")
                     # Close and log status
                     if self._timer_reader.close():
                         logger.info("jtop timer thread close")
@@ -605,6 +619,12 @@ class JtopServer(Process):
             # Write error message
             self._error.put(sys.exc_info())
         finally:
+            # Close tegrastats
+            try:
+                self._tegrastats.close(timeout=TIMEOUT_SWITCHOFF)
+                logger.info("tegrastats force closed")
+            except Exception as e:
+                logger.error("Error closing tegrastats: {error}".format(error=e))
             # Close tegra
             if self._timer_reader.close(timeout=TIMEOUT_SWITCHOFF):
                 logger.info("FORCE jtop timer thread close")
@@ -771,7 +791,7 @@ class JtopServer(Process):
         # -- RAM --
         data['mem'] = self.memory.get_status(total)
         # -- Engines --
-        data['engines'] = self.engine.get_status()
+        data['engines'] = self.engine.get_status(tegrastats_data=self._tegrastats_data)
         # -- Temperature --
         data['temperature'] = self.temperature.get_status()
         # -- Power --
