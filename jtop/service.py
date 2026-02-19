@@ -791,7 +791,10 @@ class JtopServer(Process):
         # -- RAM --
         data['mem'] = self.memory.get_status(total)
         # -- Engines --
-        data['engines'] = self.engine.get_status(tegrastats_data=self._tegrastats_data)
+        # Filter tegrastats data to only include video codec engines (NVENC, NVDEC, NVJPG)
+        video_codec_engines = {k: v for k, v in self._tegrastats_data.items()
+                               if k.startswith(('NVENC', 'NVDEC', 'NVJPG'))}
+        data['engines'] = self.engine.get_status(tegrastats_data=video_codec_engines)
         # -- Temperature --
         data['temperature'] = self.temperature.get_status()
         # -- Power --
