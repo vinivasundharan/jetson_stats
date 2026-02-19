@@ -281,12 +281,18 @@ class jtop(Thread):
         min        :py:class:`int`  Minimum frequency of the core in **kHz** :sup:`A`
         max        :py:class:`int`  Maximum frequency of the core in **kHz** :sup:`A`
         cur        :py:class:`int`  Current frequency of the core in **kHz**
+        val        :py:class:`int`  Utilization percentage (0-100) :sup:`B`
         ========== ================ ==============================================
 
         .. note::
 
                 Note **A**
                     Some engines doesn't have a *min* and *max* frequency
+
+                Note **B**
+                    Utilization percentage is only available for engines that
+                    expose load/activity monitoring (e.g., NVENC, NVDEC, NVJPG, VIC).
+                    Not all engines provide this information.
 
         :return: Dictionary of all active engines
         :rtype: dict

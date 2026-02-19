@@ -23,7 +23,68 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def read_engine(path):
+def read_engine_utilization(engine_name, root_path="/sys/kernel"):
+    """
+    Read engine utilization percentage from available sources.
+    Checks multiple possible locations for utilization data.
+
+    Returns utilization percentage (0-100) or None if not available.
+    """
+    engine_lower = engine_name.lower()
+
+    # Try actmon_avg_activity (similar to EMC)
+    actmon_path = f"{root_path}/actmon_avg_activity/{engine_lower}"
+    if os.access(actmon_path, os.R_OK):
+        try:
+            with open(actmon_path, 'r') as f:
+                # Actmon values are typically in units that need scaling
+                # Will need to determine the correct scaling factor
+                value = int(f.read())
+                # For now, assuming similar to EMC (value / current_freq)
+                # This may need adjustment based on actual hardware
+                return value
+        except (OSError, ValueError):
+            pass
+
+    # Try cactmon (another actmon interface)
+    cactmon_path = f"{root_path}/debug/cactmon/{engine_lower}"
+    if os.access(cactmon_path, os.R_OK):
+        try:
+            with open(cactmon_path, 'r') as f:
+                value = int(f.read())
+                return value
+        except (OSError, ValueError):
+            pass
+
+    # Try devfreq load (similar to GPU)
+    devfreq_path = f"/sys/class/devfreq/{engine_lower}/load"
+    if os.access(devfreq_path, os.R_OK):
+        try:
+            with open(devfreq_path, 'r') as f:
+                # devfreq load is typically 0-1000, divide by 10 for percentage
+                value = float(f.read()) / 10.0
+                return value
+        except (OSError, ValueError):
+            pass
+
+    # Check for engine-specific devfreq device
+    devfreq_base = "/sys/class/devfreq"
+    if os.path.isdir(devfreq_base):
+        try:
+            for item in os.listdir(devfreq_base):
+                if engine_lower in item.lower():
+                    load_path = os.path.join(devfreq_base, item, "load")
+                    if os.access(load_path, os.R_OK):
+                        with open(load_path, 'r') as f:
+                            value = float(f.read()) / 10.0
+                            return value
+        except (OSError, ValueError):
+            pass
+
+    return None
+
+
+def read_engine(path, engine_name=None):
     # Read status online
     engine = {}
     # Check if access to this file
@@ -50,6 +111,23 @@ def read_engine(path):
         with open(path + "/clk_min_rate", 'r') as f:
             # Write status engine
             engine['min'] = int(f.read()) // 1000
+
+    # Try to read utilization percentage if engine name is provided
+    if engine_name:
+        utilization = read_engine_utilization(engine_name)
+        if utilization is not None:
+            # If we have current frequency, calculate percentage relative to it
+            # Similar to how EMC does it: val = utilization // cur
+            if 'cur' in engine and engine['cur'] > 0:
+                # For actmon-style values, divide by frequency
+                if utilization > 1000:  # Likely an actmon raw value
+                    engine['val'] = utilization // engine['cur']
+                else:  # Already a percentage (0-100)
+                    engine['val'] = int(utilization)
+            else:
+                # No frequency available, store as-is
+                engine['val'] = int(utilization) if utilization > 100 else int(utilization)
+
     return engine
 
 
@@ -110,6 +188,7 @@ class EngineService(object):
             for local_path in self.engines_path[engine]:
                 name_engine = os.path.basename(local_path).upper()
                 logger.debug("Status [{engine}] in {path}".format(engine=name_engine, path=local_path))
-                status[engine][name_engine] = read_engine(local_path)
+                # Pass engine name to read_engine so it can look up utilization
+                status[engine][name_engine] = read_engine(local_path, engine_name=name_engine)
         return status
 # EOF
