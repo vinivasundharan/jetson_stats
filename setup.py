@@ -105,7 +105,11 @@ def pypi_installer(installer, obj, copy):
     installer.run(obj)
 
     # Run the restart all services before to close the installer
-    if not is_virtualenv() and not is_docker() and is_superuser():
+    # Allow service installation in Docker if explicitly requested (e.g., Balena/IoT deployments)
+    force_install = os.getenv('JETSON_STATS_INSTALL_SERVICE', '').lower() in ('1', 'true', 'yes')
+    should_install = (not is_virtualenv() and not is_docker() and is_superuser()) or (force_install and is_superuser())
+
+    if should_install:
         folder, _ = os.path.split(os.path.realpath(__file__))  # This folder
         # Install variables
         install_variables(folder, copy=copy)
